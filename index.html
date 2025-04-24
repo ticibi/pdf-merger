@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PDF Merger</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            background-color: #1a1a1a;
+            color: #e0e0e0;
+            margin: 0;
+            padding: 20px;
+        }
+        .container {
+            background: #2a2a2a;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 0 10px rgba(0,0,0,0.3);
+            max-width: 500px;
+            width: 100%;
+        }
+        h1 {
+            text-align: center;
+            color: #ffffff;
+        }
+        input[type="file"] {
+            margin: 10px 0;
+            width: 100%;
+            color: #e0e0e0;
+        }
+        button {
+            background-color: #007bff;
+            color: white;
+            padding: 10px 20px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            margin-top: 10px;
+            width: 100%;
+        }
+        button:hover {
+            background-color: #0056b3;
+        }
+        button:disabled {
+            background-color: #555555;
+            cursor: not-allowed;
+        }
+        #status {
+            margin-top: 10px;
+            text-align: center;
+            color: #e0e0e0;
+        }
+        #fileList {
+            margin-top: 10px;
+            max-height: 200px;
+            overflow-y: auto;
+            width: 100%;
+        }
+        .file-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 5px;
+            border-bottom: 1px solid #444;
+            background: #333;
+            margin: 2px 0;
+            cursor: move;
+        }
+        .file-item.dragging {
+            opacity: 0.5;
+        }
+        .remove-btn {
+            background: #dc3545;
+            padding: 5px 10px;
+            font-size: 0.8em;
+            width: auto;
+        }
+        .remove-btn:hover {
+            background: #c82333;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>PDF Merger</h1>
+        <input type="file" id="pdfInput" accept="application/pdf" multiple>
+        <div id="fileList"></div>
+        <button id="mergeBtn" disabled>Merge PDFs</button>
+        <div id="status"></div>
+    </div>
+
+    <script>
+        const pdfInput = document.getElementById('pdfInput');
+        const mergeBtn = document.getElementById('mergeBtn');
+        const status = document.getElementById('status');
+        const fileList = document.getElementById('fileList');
+        let pdfFiles = [];
+
+        pdfInput.addEventListener('change', (e) => {
+            const newFiles = Array.from(e.target.files);
+            pdfFiles = [...pdfFiles, ...newFiles];
+            updateFileList();
+            mergeBtn.disabled = pdfFiles.length < 2;
+        });
+
+        function updateFileList() {
+            fileList.innerHTML = '';
+            pdfFiles.forEach((file, index) => {
+                const fileItem = document.createElement('div');
+                fileItem.className = 'file-item';
+                fileItem.draggable = true;
+                fileItem.dataset.index = index;
+                fileItem.innerHTML = `
+                    <span>${file.name}</span>
+                    <button class="remove-btn" onclick="removeFile(${index})">Remove</button>
+                `;
+                fileList.appendChild(fileItem);
+            });
+            addDragAndDropListeners();
+        }
+
+        function removeFile(index) {
+            pdfFiles.splice(index, 1);
+            updateFileList();
+            mergeBtn.disabled = pdfFiles.length < 2;
+        }
+
+        function addDragAndDropListeners() {
+            const fileItems = fileList.querySelectorAll('.file-item');
+            fileItems.forEach(item => {
+                item.addEventListener('dragstart', (e) => {
+                    item.classList.add('dragging');
+                    e.dataTransfer.setData('text/plain', item.dataset.index);
+                });
+
+                item.addEventListener('dragend', () => {
+                    item.classList.remove('dragging');
+                });
+
+                item.addEventListener('dragover', (e) => {
+                    e.preventDefault();
+                });
+
+                item.addEventListener('drop', (e) => {
+                    e.preventDefault();
+                    const fromIndex = parseInt(e.dataTransfer.getData('text/plain'));
+                    const toIndex = parseInt(e.target.closest('.file-item').dataset.index);
+                    if (fromIndex !== toIndex) {
+                        const [movedFile] = pdfFiles.splice(fromIndex, 1);
+                        pdfFiles.splice(toIndex, 0, movedFile);
+                        updateFileList();
+                    }
+                });
+            });
+        }
+
+        mergeBtn.addEventListener('click', async () => {
+            if (pdfFiles.length < 2) {
+                status.textContent = 'Please select at least two PDF files.';
+                return;
+            }
+
+            mergeBtn.disabled = true;
+            status.textContent = 'Merging PDFs...';
+            
+            try {
+                const mergedPdf = await PDFLib.PDFDocument.create();
+                
+                for (const file of pdfFiles) {
+                    const arrayBuffer = await file.arrayBuffer();
+                    const pdf = await PDFLib.PDFDocument.load(arrayBuffer);
+                    const copiedPages = await mergedPdf.copyPages(pdf, pdf.getPageIndices());
+                    copiedPages.forEach((page) => mergedPdf.addPage(page));
+                }
+
+                const pdfBytes = await mergedPdf.save();
+                const blob = new Blob([pdfBytes], { type: 'application/pdf' });
+                const url = URL.createObjectURL(blob);
+                
+                const link = document.createElement('a');
+                link.href = url;
+                link.download = 'merged.pdf';
+                link.click();
+                URL.revokeObjectURL(url);
+
+                status.textContent = 'PDFs merged successfully!';
+            } catch (error) {
+                console.error('Error merging PDFs:', error);
+                status.textContent = 'Error merging PDFs. Please try again.';
+            } finally {
+                mergeBtn.disabled = pdfFiles.length < 2;
+            }
+        });
+    </script>
+</body>
+</html>
